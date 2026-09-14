@@ -30,6 +30,16 @@ CLI для ассистированной адаптации (history matching) 
    Повторяйте update для iteration 1, 2, ... (n_iterations-1), каждый раз
    прогоняя симулятор на новом hm_run/iteration_N/manifest.csv, пока не
    дойдёте до последней запланированной итерации.
+
+Если ваш симулятор пишет обычный UNSMRY (Eclipse/tNavigator/OPM Flow),
+шаг "приведите результат к таблице" из init можно не делать руками -
+после прогона всех кейсов итерации вызовите:
+
+   python run_history_match.py collect --run-dir hm_run --iteration 0
+
+это прочитает .UNSMRY каждого кейса (через пакет `resdata`,
+`pip install resdata`) и само разложит их по
+hm_run/iteration_0/predictions/case_NNN.csv.
 """
 
 from __future__ import annotations
@@ -116,6 +126,36 @@ def cmd_init(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_collect(args: argparse.Namespace) -> None:
+    from history_match.unsmry import DEFAULT_KEY_MAP, read_field_rates
+
+    iteration_dir = _iteration_dir(Path(args.run_dir), args.iteration)
+    manifest = _load_manifest(iteration_dir)
+    predictions_dir = iteration_dir / "predictions"
+    predictions_dir.mkdir(exist_ok=True)
+
+    key_map = DEFAULT_KEY_MAP
+    if args.keys:
+        requested = [k.strip() for k in args.keys.split(",")]
+        key_map = {k: DEFAULT_KEY_MAP.get(k, k.lower()) for k in requested}
+
+    ok, failed = 0, []
+    for case_id, data_path in zip(manifest["case_id"], manifest["data_path"]):
+        try:
+            frame = read_field_rates(data_path, key_map=key_map)
+        except Exception as exc:  # noqa: BLE001 - показываем, какой именно кейс не прочитался, и продолжаем
+            failed.append((case_id, str(exc)))
+            continue
+        frame.to_csv(predictions_dir / f"case_{case_id:03d}.csv", index=False)
+        ok += 1
+
+    print(f"Прочитано кейсов: {ok}/{len(manifest)} -> {predictions_dir}")
+    if failed:
+        print("Не удалось прочитать:")
+        for case_id, error in failed:
+            print(f"  case_{case_id:03d}: {error}")
+
+
 def cmd_update(args: argparse.Namespace) -> None:
     run_dir = Path(args.run_dir)
     space = _load_parameter_space(run_dir)
@@ -189,6 +229,17 @@ def parse_args() -> argparse.Namespace:
     init_p.add_argument("--case-dir", default=None, help="Куда класть .DATA-кейсы (по умолч. рядом с --data)")
     init_p.add_argument("--section", default="EDIT", help="В какую секцию вставлять INCLUDE с мультипликаторами")
     init_p.set_defaults(func=cmd_init)
+
+    collect_p = sub.add_parser(
+        "collect", help="Прочитать UNSMRY кейсов и разложить по predictions/case_NNN.csv (нужен pip install resdata)"
+    )
+    collect_p.add_argument("--run-dir", required=True)
+    collect_p.add_argument("--iteration", type=int, required=True)
+    collect_p.add_argument(
+        "--keys", default=None,
+        help="Через запятую, какие summary-ключи читать (по умолч. FLPR,FOPR,FWPR,FGPR,FWIR - см. unsmry.DEFAULT_KEY_MAP)",
+    )
+    collect_p.set_defaults(func=cmd_collect)
 
     update_p = sub.add_parser("update", help="Один шаг ES-MDA по результатам прогонов симулятора")
     update_p.add_argument("--run-dir", required=True)

@@ -226,12 +226,32 @@ python run_history_match.py init \
 - `--run-dir` — папка для метаданных ансамбля (пространство параметров, векторы, список кейсов); сами `.DATA`-кейсы по умолчанию лежат рядом с `--data` (см. выше), не в `--run-dir` — если нужно иначе, укажите `--case-dir`.
 
 Появится `hm_run/iteration_0/manifest.csv` со списком путей к кейсам.
-**Прогоните ваш симулятор на каждом из них.** Результат каждого кейса
-приведите к таблице с колонками `date` + те же, что в
-`eclipse_schedule.diagnostics.field_rates()` (`liquid_rate`,
-`water_rate`, ...) и сохраните как
-`hm_run/iteration_0/predictions/case_000.csv`, `case_001.csv`, ...
-(имя файла — 3-значный `case_id` из `manifest.csv`).
+**Прогоните ваш симулятор на каждом из них.**
+
+## Шаг 1.5: `collect` — автоматически прочитать результаты (нужен `resdata`)
+
+Если симулятор пишет обычный UNSMRY (Eclipse/tNavigator/OPM Flow), не
+нужно руками собирать таблицы из результатов — после прогона всех
+кейсов итерации:
+
+```
+pip install resdata
+python run_history_match.py collect --run-dir hm_run --iteration 0
+```
+
+Это прочитает `<кейс>.UNSMRY`/`.SMSPEC` рядом с каждым `.DATA` (через
+`resdata` — ту же библиотеку, на которой работает ERT) и разложит их по
+`hm_run/iteration_0/predictions/case_NNN.csv` в формате
+`eclipse_schedule.diagnostics.field_rates()` — колонки `FLPR`→`liquid_rate`,
+`FOPR`→`oil_rate`, `FWPR`→`water_rate`, `FGPR`→`gas_rate`, `FWIR`→`injection_rate`
+(полный список — `history_match.unsmry.DEFAULT_KEY_MAP`; свой набор
+ключей — флагом `--keys FLPR,FOPR,FWIR`). Кейсы, которые не удалось
+прочитать (например, симулятор ещё не досчитал), просто пропускаются со
+своей ошибкой в консоли — остальные всё равно попадают в `predictions/`.
+
+Если такой возможности нет (нет `resdata`, или у симулятора нестандартный
+вывод) — соберите `predictions/case_NNN.csv` вручную, тем же форматом:
+колонки `date` + те же, что в `field_rates()` (`liquid_rate`, `water_rate`, ...).
 
 ## Шаг 2: `update` — один шаг ES-MDA
 
@@ -278,11 +298,17 @@ python run_history_match.py update \
   `run_history_matching_loop`) — реализован на чистом numpy, без
   внешних пакетов (ERT/`iterative_ensemble_smoother`), поэтому
   проверяется тестами на игрушечной аналитической модели без всякого
-  симулятора.
+  симулятора;
+- `unsmry.py` — чтение результатов реального прогона (`read_field_rates`,
+  через опциональную зависимость `resdata`) в формат `field_rates`.
 
-Тесты (`tests/test_history_match.py`) покрывают все модули, кроме
-самого запуска симулятора (`run_case`), для которого нет реального
-движка в CI — там проверяется только сама механика подстановки команды.
+Тесты (`tests/test_history_match.py`, `tests/test_unsmry.py`) покрывают
+все модули, включая чтение UNSMRY — `resdata` умеет не только читать,
+но и писать summary-файлы, поэтому тест генерирует настоящий (не
+поддельный) бинарный UNSMRY и прогоняет его через `read_field_rates()` —
+единственное, что действительно нельзя проверить без Eclipse/tNavigator,
+это сам запуск симулятора (`ensemble.run_case`) — там тестируется только
+механика подстановки команды.
 
 ```
 python -m pytest

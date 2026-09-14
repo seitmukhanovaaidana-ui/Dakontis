@@ -1,3 +1,8 @@
 pandas>=2.0
 numpy>=1.24
 matplotlib>=3.7
+
+# Опционально - только для history_match/unsmry.py (чтение UNSMRY реального
+# прогона Eclipse/tNavigator/OPM Flow). Остальной history_match и весь
+# eclipse_schedule работают без неё.
+# resdata>=4.0
